@@ -14,7 +14,7 @@
     <header class="header">
       <div class="brand">
         <h1>WordConnector</h1>
-        <p>팬톤 블루 감성 · 실시간 끝말잇기 대전</p>
+        <p>최대 4인 끝말잇기 · 두음법칙 허용 · 라운드는 버튼으로 시작</p>
       </div>
 
       <div class="pill">
@@ -24,22 +24,24 @@
     </header>
 
     <section class="grid">
+      <!-- Left -->
       <section class="card">
         <p class="section-title">Room</p>
 
         <div class="row">
           <input class="input" id="room" placeholder="Room code (예: abcd)" />
+          <input class="input" id="nickname" placeholder="닉네임 (선택)" />
           <button class="btn" id="join" type="button">Join</button>
           <button class="btn secondary" id="copyRoom" type="button">Copy</button>
         </div>
 
-        <p class="hint" id="roomHint">친구랑 같은 Room code로 들어오면 1vs1로 연결돼.</p>
+        <p class="hint" id="roomHint">같은 Room code로 최대 4명까지 입장 가능.</p>
 
         <div class="kpi">
           <div class="box">
             <div class="label">Current word</div>
             <div class="value" id="currentWord">(none)</div>
-            <div class="mini">다음 시작 글자: <b id="mustStart">(없음)</b></div>
+            <div class="mini">다음 시작 글자(참고): <b id="mustStart">(없음)</b></div>
           </div>
 
           <div class="box">
@@ -49,7 +51,7 @@
               <span class="sep">·</span>
               <span id="timeLeft">-</span>
             </div>
-            <div class="mini" id="playersText">Players: 0/2</div>
+            <div class="mini" id="playersText">Players: 0/4</div>
           </div>
         </div>
 
@@ -62,20 +64,45 @@
         <div class="row">
           <input class="input" id="word" placeholder="단어 입력 (한글만)" autocomplete="off" />
           <button class="btn" id="send" type="button">Send</button>
+          <button class="btn secondary" id="newRound" type="button">Start Round</button>
         </div>
 
-        <p class="hint">
-          규칙: 마지막 글자 → 다음 단어 첫 글자 · 중복 금지 · 사전 검증
-        </p>
+        <p class="hint">라운드가 끝나면 입력/타이머는 멈추고, 팝업으로 결과가 떠.</p>
+
+        <p class="section-title" style="margin-top:18px;">Scoreboard</p>
+        <div id="scoreboard" class="scoreboard"></div>
       </section>
 
+      <!-- Right -->
       <section class="card">
         <p class="section-title">Log</p>
         <div class="log" id="log"></div>
-        <p class="hint">Join이 안 되면 Log에 이유가 뜨도록 고쳐놨어.</p>
+        <p class="hint">로그는 최신이 위에 쌓이고, 오래된 건 자동으로 사라져.</p>
       </section>
     </section>
   </main>
+
+  <!-- ✅ Round End Popup (Modal) -->
+  <div id="modalBackdrop" class="modal-backdrop hidden" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modal-top">
+        <div class="modal-icon">🏁</div>
+        <div class="modal-titles">
+          <div id="modalTitle" class="modal-title">Round Over</div>
+          <div id="modalSub" class="modal-sub">결과</div>
+        </div>
+      </div>
+
+      <div class="modal-body">
+        <div id="modalMsg" class="modal-msg">...</div>
+        <div id="modalReason" class="modal-reason"></div>
+      </div>
+
+      <div class="modal-actions">
+        <button id="modalClose" class="btn" type="button">OK</button>
+      </div>
+    </div>
+  </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="client.js"></script>
