@@ -15,11 +15,36 @@ const MAX_PLAYERS = 4;
 const rooms = new Map();
 
 /* ---------------------------
+   Dictionary validation cache
+--------------------------- */
+const VALID_CACHE_TTL_MS = 1000 * 60 * 60 * 24; // 24h
+const VALID_CACHE_MAX = 6000;                   // max entries
+const validCache = new Map(); // word -> { ok, exp }
+
+function cacheGet(word) {
+  const v = validCache.get(word);
+  if (!v) return null;
+  if (Date.now() > v.exp) {
+    validCache.delete(word);
+    return null;
+  }
+  return v.ok;
+}
+
+function cacheSet(word, ok) {
+  // basic eviction: remove oldest when exceed max
+  if (validCache.size >= VALID_CACHE_MAX) {
+    const firstKey = validCache.keys().next().value;
+    if (firstKey) validCache.delete(firstKey);
+  }
+  validCache.set(word, { ok, exp: Date.now() + VALID_CACHE_TTL_MS });
+}
+
+/* ---------------------------
    Hangul utils (for dueum variants)
 --------------------------- */
 const CHO = ["ㄱ","ㄲ","ㄴ","ㄷ","ㄸ","ㄹ","ㅁ","ㅂ","ㅃ","ㅅ","ㅆ","ㅇ","ㅈ","ㅉ","ㅊ","ㅋ","ㅌ","ㅍ","ㅎ"];
 const JUNG = ["ㅏ","ㅐ","ㅑ","ㅒ","ㅓ","ㅔ","ㅕ","ㅖ","ㅗ","ㅘ","ㅙ","ㅚ","ㅛ","ㅜ","ㅝ","ㅞ","ㅟ","ㅠ","ㅡ","ㅢ","ㅣ"];
-const JONG = ["", "ㄱ","ㄲ","ㄳ","ㄴ","ㄵ","ㄶ","ㄷ","ㄹ","ㄺ","ㄻ","ㄼ","ㄽ","ㄾ","ㄿ","ㅀ","ㅁ","ㅂ","ㅄ","ㅅ","ㅆ","ㅇ","ㅈ","ㅊ","ㅋ","ㅌ","ㅍ","ㅎ"];
 
 function isHangulSyllable(ch) {
   const code = ch.charCodeAt(0);
@@ -58,9 +83,7 @@ function dueumVariants(syllable) {
   // ㄹ -> ㄴ (항상), ㄹ -> ㅇ (특정 모음)
   if (init === "ㄹ") {
     out.add(composeSyllable(CHO.indexOf("ㄴ"), d.jung, d.jong));
-    if (yVowels.has(vowel)) {
-      out.add(composeSyllable(CHO.indexOf("ㅇ"), d.jung, d.jong));
-    }
+    if (yVowels.has(vowel)) out.add(composeSyllable(CHO.indexOf("ㅇ"), d.jung, d.jong));
   }
 
   // ㄴ -> ㅇ (특정 모음)
@@ -72,10 +95,10 @@ function dueumVariants(syllable) {
 }
 
 /* ---------------------------
-   Dictionary validation (fast-ish)
+   Dictionary validation (cached)
 --------------------------- */
-async function krdictSearch(q, num = 10) {
-  if (!KRDIC_KEY) return { total: 0, words: [] };
+async function krdictSearchTotal(q, num = 10) {
+  if (!KRDIC_KEY) return 0;
 
   const params = new URLSearchParams({
     key: KRDIC_KEY,
@@ -91,14 +114,17 @@ async function krdictSearch(q, num = 10) {
   const xml = await res.text();
 
   const m = xml.match(/<total>(\d+)<\/total>/);
-  const total = m ? Number(m[1]) : 0;
-  const words = [...xml.matchAll(/<word>([^<]+)<\/word>/g)].map(x => x[1].trim());
-  return { total, words };
+  return m ? Number(m[1]) : 0;
 }
 
 async function isValidKoreanDictionaryWord(word) {
-  const r = await krdictSearch(word, 10);
-  return r.total > 0;
+  const cached = cacheGet(word);
+  if (cached !== null) return cached;
+
+  const total = await krdictSearchTotal(word, 10);
+  const ok = total > 0;
+  cacheSet(word, ok);
+  return ok;
 }
 
 /* ---------------------------
@@ -127,7 +153,11 @@ function getRoom(roomCode) {
       timer: null,
       deadline: 0,
       timeLimitMs: 12000,
-      lastValidPlayerId: null
+      lastValidPlayerId: null,
+
+      // ✅ match settings
+      targetScore: 5,  // default
+      matchWinnerId: null
     });
   }
   return rooms.get(roomCode);
@@ -150,7 +180,9 @@ function emitState(room) {
     roomCode: room.roomCode,
     ownerId: room.ownerId,
     state: room.state,
+    targetScore: room.targetScore,
     players: room.players.map(p => ({ id: p.id, name: p.name, score: p.score })),
+    order: [...room.order], // ✅ turn order for UI
     currentWord: room.currentWord,
     turn: room.state === "RUNNING" ? getTurnId(room) : null,
     timeLimitMs: room.timeLimitMs
@@ -199,13 +231,33 @@ function startTurnTimer(room) {
     const wp = room.players.find(p => p.id === winner);
     if (wp) wp.score += 1;
 
+    // ✅ round_end always
     io.to(room.roomCode).emit("round_end", {
       reason: "timeout",
       winner,
       loser,
-      scores: room.players.map(p => ({ id: p.id, name: p.name, score: p.score }))
+      scores: room.players.map(p => ({ id: p.id, name: p.name, score: p.score })),
+      targetScore: room.targetScore
     });
 
+    // ✅ match check
+    if (wp && wp.score >= room.targetScore) {
+      room.matchWinnerId = winner;
+
+      io.to(room.roomCode).emit("match_end", {
+        winner,
+        scores: room.players.map(p => ({ id: p.id, name: p.name, score: p.score })),
+        targetScore: room.targetScore
+      });
+
+      room.state = "LOBBY";
+      resetRound(room, winner);
+      emitState(room);
+      stopTimer(room);
+      return;
+    }
+
+    // round ends -> back to lobby (manual next start)
     room.state = "LOBBY";
     resetRound(room, winner);
     emitState(room);
@@ -251,18 +303,50 @@ io.on("connection", (socket) => {
     }
   });
 
+  // ✅ set target score (only in lobby)
+  socket.on("set_target", ({ roomCode, targetScore }, ack) => {
+    const room = rooms.get(roomCode);
+    if (!room) return ack?.({ ok: false, error: "room_not_found" });
+
+    if (room.state === "RUNNING") return ack?.({ ok: false, error: "running" });
+
+    const n = Number(targetScore);
+    const clamped = Number.isFinite(n) ? Math.max(1, Math.min(50, Math.floor(n))) : 5;
+    room.targetScore = clamped;
+
+    io.to(roomCode).emit("system", { message: `Target score set to ${room.targetScore}` });
+    emitState(room);
+    ack?.({ ok: true, targetScore: room.targetScore });
+  });
+
+  // ✅ start round manually (uses room.targetScore)
   socket.on("start_round", ({ roomCode }, ack) => {
     const room = rooms.get(roomCode);
     if (!room) return ack?.({ ok: false, error: "room_not_found" });
     if (room.order.length < 2) return ack?.({ ok: false, error: "need_2_players" });
     if (room.state === "RUNNING") return ack?.({ ok: false, error: "already_running" });
 
+    room.matchWinnerId = null;
     room.state = "RUNNING";
     resetRound(room, getTurnId(room));
     emitState(room);
     startTurnTimer(room);
 
     io.to(roomCode).emit("system", { message: "Round started." });
+    ack?.({ ok: true });
+  });
+
+  // ✅ reset match (scores to 0) in lobby
+  socket.on("reset_match", ({ roomCode }, ack) => {
+    const room = rooms.get(roomCode);
+    if (!room) return ack?.({ ok: false, error: "room_not_found" });
+    if (room.state === "RUNNING") return ack?.({ ok: false, error: "running" });
+
+    for (const p of room.players) p.score = 0;
+    room.matchWinnerId = null;
+    resetRound(room, getTurnId(room));
+    emitState(room);
+    io.to(roomCode).emit("system", { message: "Match reset (scores cleared)." });
     ack?.({ ok: true });
   });
 
@@ -282,11 +366,6 @@ io.on("connection", (socket) => {
       return ack?.({ ok: false, error: "not_in_room" });
     }
 
-    if (room.order.length < 2) {
-      socket.emit("reject", { reason: "waiting_for_opponent" });
-      return ack?.({ ok: false, error: "waiting_for_opponent" });
-    }
-
     const turnId = getTurnId(room);
     if (socket.id !== turnId) {
       socket.emit("reject", { reason: "not_your_turn" });
@@ -303,7 +382,7 @@ io.on("connection", (socket) => {
       return ack?.({ ok: false, error: "not_hangul" });
     }
 
-    // ✅ 두음법칙 허용
+    // ✅ dueum allowed
     if (room.currentWord) {
       const required = lastSyllable(room.currentWord);
       const allowed = new Set(dueumVariants(required));
@@ -324,7 +403,7 @@ io.on("connection", (socket) => {
       return ack?.({ ok: false, error: "not_in_dictionary" });
     }
 
-    // ✅ accept (한방단어 체크 제거!)
+    // accept
     room.currentWord = word;
     room.usedWords.add(word);
     room.lastValidPlayerId = socket.id;
