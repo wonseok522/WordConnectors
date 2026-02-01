@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>WordConnector</title>
+
+  <!-- Pretty Korean font -->
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+  <div class="bg-glow"></div>
+
+  <main class="wrap">
+    <header class="header">
+      <div class="brand">
+        <h1>WordConnector</h1>
+        <p>실시간 끝말잇기 대전</p>
+      </div>
+
+      <div class="pill">
+        <span class="dot"></span>
+        <span id="statusText">Disconnected</span>
+      </div>
+    </header>
+
+    <section class="grid">
+      <!-- GAME -->
+      <section class="card">
+        <p class="section-title">Room</p>
+
+        <div class="row">
+          <input class="input" id="room" placeholder="Room code (예: abcd)" />
+          <button class="btn" id="join">Join</button>
+          <button class="btn secondary" id="copyRoom" type="button">Copy</button>
+        </div>
+
+        <p class="hint">Room Code를 입력하세요!</p>
+
+        <div class="kpi">
+          <div class="box">
+            <div class="label">Current word</div>
+            <div class="value" id="currentWord">(none)</div>
+          </div>
+          <div class="box">
+            <div class="label">Turn / Time left</div>
+            <div class="value"><span id="turn">(waiting)</span> · <span id="timeLeft">-</span></div>
+          </div>
+        </div>
+
+        <div class="timerbar" aria-label="timer progress">
+          <div id="timerFill"></div>
+        </div>
+
+        <p class="section-title" style="margin-top:14px;">Play</p>
+
+        <div class="row">
+          <input class="input" id="word" placeholder="단어 입력 (한글만)" autocomplete="off" />
+          <button class="btn" id="send">Send</button>
+        </div>
+
+        <p class="hint">
+          규칙: 마지막 글자 → 다음 단어 첫 글자 · 중복 금지 · 사전 검증
+        </p>
+      </section>
+
+      <!-- LOG -->
+      <section class="card">
+        <p class="section-title">Log</p>
+        <div class="log" id="log"></div>
+        <p class="hint">
+          ✅ Accepted / ❌ Rejected / 🏁 Round end
+        </p>
+      </section>
+    </section>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="client.js"></script>
+</body>
+</html>
