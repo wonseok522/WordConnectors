@@ -7,3 +7,6 @@
 3. node server.js 
 4. 다른 터미널에서 ngrok http 3000
 5. 나온 링크를 공유
+
+
+[https://dashboard.render.com/web/srv-d5vqp4i4d50c73a0fq10/deploys/dep-d5vqp4q4d50c73a0fqi0](url)
